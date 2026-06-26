@@ -1,0 +1,62 @@
+name: Build Windows Portable EXE
+
+# Runs automatically on every push to main/master, and can also be triggered
+# manually from the "Actions" tab on GitHub ("Run workflow" button).
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch: {}
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      # GitHub's windows-latest runners already ship MSVC Build Tools and
+      # Git Bash (needed for scripts/tauri-build.sh), so no extra setup
+      # is required for those.
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build Next.js static export for Tauri
+        shell: bash
+        run: npm run build:tauri
+
+      - name: Build Rust/Tauri release binary (no installer bundling)
+        shell: bash
+        run: |
+          cd src-tauri
+          cargo build --release
+
+      - name: Stage portable EXE
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item "src-tauri/target/release/app.exe" "dist/T-Schetchik-portable.exe"
+
+      - name: Upload portable EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: T-Schetchik-portable-windows
+          path: dist/T-Schetchik-portable.exe
+          if-no-files-found: error
